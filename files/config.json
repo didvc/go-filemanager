@@ -1,0 +1,28 @@
+{
+  "name": "file-manager-app",
+  "version": "1.0.0",
+  "description": "Go-based web file manager with preview capabilities",
+  "features": [
+    "Directory browsing",
+    "File upload/download",
+    "Image preview",
+    "Text file viewer",
+    "HTML rendering",
+    "Responsive design"
+  ],
+  "supported_formats": {
+    "images": ["jpg", "jpeg", "png", "gif", "bmp", "svg", "webp"],
+    "text": ["txt", "md", "json", "xml", "csv", "log", "yml", "yaml"],
+    "code": ["js", "css", "go", "py", "java", "cpp", "c", "h", "php", "rb", "rs", "ts"],
+    "web": ["html", "htm"]
+  },
+  "server": {
+    "port": 8082,
+    "host": "localhost"
+  },
+  "security": {
+    "path_traversal_protection": true,
+    "file_type_validation": true,
+    "access_control": "root_directory_only"
+  }
+}

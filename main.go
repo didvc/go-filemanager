@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type FileInfo struct {
@@ -20,6 +21,8 @@ type FileInfo struct {
 	Size     int64
 	ModTime  time.Time
 	SizeStr  string
+	FileType string
+	CanPreview bool
 }
 
 type PageData struct {
@@ -50,13 +53,18 @@ func main() {
 	http.HandleFunc("/download", downloadHandler)
 	http.HandleFunc("/mkdir", mkdirHandler)
 	http.HandleFunc("/delete", deleteHandler)
+	http.HandleFunc("/preview", previewHandler)
+	http.HandleFunc("/view", viewHandler)
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 
-	fmt.Println("File Manager Server starting on http://localhost:8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	fmt.Println("File Manager Server starting on http://0.0.0.0:8086")
+	log.Fatal(http.ListenAndServe("0.0.0.0:8086", nil))
 }
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
+	// Set UTF-8 encoding
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	
 	path := r.URL.Query().Get("path")
 	if path == "" {
 		path = "/"
@@ -285,7 +293,7 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
                             <span class="file-icon folder">📁</span>
                             <a href="/?path={{.Path}}" class="file-name">{{.Name}}</a>
                         {{else}}
-                            <span class="file-icon file">📄</span>
+                            <span class="file-icon file">{{getFileIcon .FileType .IsDir}}</span>
                             <span>{{.Name}}</span>
                         {{end}}
                     </td>
@@ -293,6 +301,9 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
                     <td>{{.ModTime.Format "2006-01-02 15:04:05"}}</td>
                     <td>
                         {{if not .IsDir}}
+                            {{if .CanPreview}}
+                                <a href="/preview?path={{.Path}}" class="btn btn-success" style="padding: 4px 8px; font-size: 12px;" target="_blank">👁️ Preview</a>
+                            {{end}}
                             <a href="/download?path={{.Path}}" class="btn btn-primary" style="padding: 4px 8px; font-size: 12px;">📥 Download</a>
                         {{end}}
                         <button onclick="deleteItem('{{.Path}}', '{{.Name}}')" class="btn btn-danger" style="padding: 4px 8px; font-size: 12px;">🗑️ Delete</button>
@@ -385,7 +396,9 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 </html>
 	`
 
-	t, err := template.New("index").Parse(tmpl)
+	t, err := template.New("index").Funcs(template.FuncMap{
+		"getFileIcon": getFileIcon,
+	}).Parse(tmpl)
 	if err != nil {
 		http.Error(w, "Template error", http.StatusInternalServerError)
 		return
@@ -422,14 +435,22 @@ func readDir(path string) ([]FileInfo, error) {
 		if strings.HasPrefix(itemPath, "//") {
 			itemPath = strings.TrimPrefix(itemPath, "/")
 		}
+		// Remove 'files/' prefix if it exists
+		if strings.HasPrefix(itemPath, "files/") {
+			itemPath = strings.TrimPrefix(itemPath, "files")
+		}
+
+		fileType, canPreview := getFileType(entry.Name())
 
 		file := FileInfo{
-			Name:    entry.Name(),
-			Path:    itemPath,
-			IsDir:   entry.IsDir(),
-			Size:    info.Size(),
-			ModTime: info.ModTime(),
-			SizeStr: formatSize(info.Size()),
+			Name:       entry.Name(),
+			Path:       itemPath,
+			IsDir:      entry.IsDir(),
+			Size:       info.Size(),
+			ModTime:    info.ModTime(),
+			SizeStr:    formatSize(info.Size()),
+			FileType:   fileType,
+			CanPreview: canPreview,
 		}
 		files = append(files, file)
 	}
@@ -475,6 +496,58 @@ func formatSize(size int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(size)/float64(div), "KMGTPE"[exp])
+}
+
+func getFileType(filename string) (string, bool) {
+	ext := strings.ToLower(filepath.Ext(filename))
+	switch ext {
+	case ".txt", ".md", ".json", ".xml", ".csv", ".log", ".yml", ".yaml", ".ini", ".conf", ".cfg":
+		return "text", true
+	case ".html", ".htm":
+		return "html", true
+	case ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp":
+		return "image", true
+	case ".pdf":
+		return "pdf", true
+	case ".js", ".css", ".go", ".py", ".java", ".cpp", ".c", ".h", ".php", ".rb", ".rs", ".ts":
+		return "code", true
+	default:
+		return "binary", false
+	}
+}
+
+func getFileIcon(fileType string, isDir bool) string {
+	if isDir {
+		return "📁"
+	}
+	switch fileType {
+	case "text":
+		return "📄"
+	case "html":
+		return "🌐"
+	case "image":
+		return "🖼️"
+	case "pdf":
+		return "📕"
+	case "code":
+		return "💻"
+	default:
+		return "📄"
+	}
+}
+
+func isValidUTF8(data []byte) bool {
+	return utf8.Valid(data)
+}
+
+func sanitizeUTF8(data []byte) string {
+	// If valid UTF-8, return as string
+	if utf8.Valid(data) {
+		return string(data)
+	}
+	
+	// If not valid UTF-8, convert invalid sequences to replacement character
+	return strings.ToValidUTF8(string(data), "�")
 }
 
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
@@ -647,4 +720,191 @@ func deleteHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Redirect back to the parent directory
 	http.Redirect(w, r, "/?path="+parentPath, http.StatusSeeOther)
+}
+
+func previewHandler(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "Path not specified", http.StatusBadRequest)
+		return
+	}
+
+	filePath := filepath.Join(rootDir, path)
+	filePath = filepath.Clean(filePath)
+
+	// Ensure the file is within the root directory
+	absRootDir, _ := filepath.Abs(rootDir)
+	absFilePath, _ := filepath.Abs(filePath)
+	
+	if !strings.HasPrefix(absFilePath, absRootDir) {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	// Check if file exists and is not a directory
+	info, err := os.Stat(filePath)
+	if err != nil {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+
+	if info.IsDir() {
+		http.Error(w, "Cannot preview directory", http.StatusBadRequest)
+		return
+	}
+
+	filename := filepath.Base(filePath)
+	fileType, canPreview := getFileType(filename)
+
+	if !canPreview {
+		http.Error(w, "File type not supported for preview", http.StatusUnsupportedMediaType)
+		return
+	}
+
+	switch fileType {
+	case "image":
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		imagePreviewTemplate := `
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Image Preview - %s</title>
+    <meta charset="UTF-8">
+    <style>
+        body { margin: 0; padding: 20px; background: #f0f0f0; font-family: Arial, sans-serif; }
+        .container { max-width: 100%%; text-align: center; }
+        img { max-width: 100%%; max-height: 90vh; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        .info { margin: 20px 0; }
+        .btn { padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; margin: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="info">
+            <h2>🖼️ %s</h2>
+            <p>Size: %s</p>
+        </div>
+        <img src="/view?path=%s" alt="%s">
+        <div style="margin-top: 20px;">
+            <a href="/download?path=%s" class="btn">📥 Download</a>
+            <a href="javascript:history.back()" class="btn">← Back</a>
+        </div>
+    </div>
+</body>
+</html>`
+		fmt.Fprintf(w, imagePreviewTemplate, filename, filename, formatSize(info.Size()), path, filename, path)
+
+	case "text", "code":
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			http.Error(w, "Failed to read file", http.StatusInternalServerError)
+			return
+		}
+
+		// Validate UTF-8 and handle encoding
+		if !isValidUTF8(content) {
+			// If not valid UTF-8, show as binary
+			http.Error(w, "File contains non-UTF-8 content. Cannot preview as text.", http.StatusUnsupportedMediaType)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		textPreviewTemplate := `
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Text Preview - %s</title>
+    <meta charset="UTF-8">
+    <style>
+        body { margin: 0; padding: 20px; background: #f8f9fa; font-family: Arial, sans-serif; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .header { border-bottom: 1px solid #ddd; padding-bottom: 10px; margin-bottom: 20px; }
+        .content { background: #f8f9fa; padding: 15px; border-radius: 4px; border: 1px solid #e9ecef; }
+        pre { margin: 0; white-space: pre-wrap; word-wrap: break-word; font-family: 'Courier New', monospace; }
+        .btn { padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; margin: 5px; }
+        .info { color: #6c757d; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>📄 %s</h2>
+            <div class="info">Size: %s | Type: %s | Encoding: UTF-8</div>
+        </div>
+        <div class="content">
+            <pre>%s</pre>
+        </div>
+        <div style="margin-top: 20px;">
+            <a href="/download?path=%s" class="btn">📥 Download</a>
+            <a href="javascript:history.back()" class="btn">← Back</a>
+        </div>
+    </div>
+</body>
+</html>`
+		// Sanitize content to ensure valid UTF-8 and escape HTML
+		sanitizedContent := sanitizeUTF8(content)
+		escapedContent := strings.ReplaceAll(sanitizedContent, "<", "&lt;")
+		escapedContent = strings.ReplaceAll(escapedContent, ">", "&gt;")
+		fmt.Fprintf(w, textPreviewTemplate, filename, filename, formatSize(info.Size()), fileType, escapedContent, path)
+
+	case "html":
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		htmlPreviewTemplate := `
+<!DOCTYPE html>
+<html>
+<head>
+    <title>HTML Preview - %s</title>
+    <meta charset="UTF-8">
+    <style>
+        body { margin: 0; padding: 20px; background: #f8f9fa; font-family: Arial, sans-serif; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { background: white; padding: 15px; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .preview-frame { width: 100%%; height: 70vh; border: 1px solid #ddd; border-radius: 4px; }
+        .btn { padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; margin: 5px; }
+        .info { color: #6c757d; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>🌐 %s</h2>
+            <div class="info">Size: %s | Encoding: UTF-8</div>
+            <div style="margin-top: 10px;">
+                <a href="/view?path=%s" class="btn" target="_blank">🔗 Open in New Tab</a>
+                <a href="/download?path=%s" class="btn">📥 Download</a>
+                <a href="javascript:history.back()" class="btn">← Back</a>
+            </div>
+        </div>
+        <iframe src="/view?path=%s" class="preview-frame"></iframe>
+    </div>
+</body>
+</html>`
+		fmt.Fprintf(w, htmlPreviewTemplate, filename, filename, formatSize(info.Size()), path, path, path)
+
+	default:
+		http.Error(w, "File type not supported for preview", http.StatusUnsupportedMediaType)
+	}
+}
+
+func viewHandler(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "Path not specified", http.StatusBadRequest)
+		return
+	}
+
+	filePath := filepath.Join(rootDir, path)
+	filePath = filepath.Clean(filePath)
+
+	// Ensure the file is within the root directory
+	absRootDir, _ := filepath.Abs(rootDir)
+	absFilePath, _ := filepath.Abs(filePath)
+	
+	if !strings.HasPrefix(absFilePath, absRootDir) {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	// Serve the file directly
+	http.ServeFile(w, r, filePath)
 }
