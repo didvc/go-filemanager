@@ -121,7 +121,12 @@ This project is open source and available under the MIT License.
 
 ### Related projects
 
-- [**astro-html-editor**](https://github.com/didvc/astro-html-editor) — Self-hosted HTML editor with live preview. Astro SSR + plain JavaScript, server-side file persistence.
-- [**html-bio-generator**](https://github.com/didvc/html-bio-generator) — A modern, intuitive tool for creating beautiful HTML bio pages with ease. Built with Next.js, TypeScript, and Tailwind CSS. Perfect for developers, freelancers, and content creators.
+- [**caddy-midi**](https://github.com/didvc/caddy-midi) — Caddy HTTP handler that serves MIDI files as synthesized audio. Pure Go, no cgo.
+- [**screen-masking**](https://github.com/didvc/screen-masking) — Cover parts of your Windows desktop with non-interactive overlays you shape from a pixel-ruled preview window. Pure Win32, no dependencies.
+- [**simple-ots**](https://github.com/didvc/simple-ots) — Hash files, build a Merkle tree, anchor to Bitcoin via OpenTimestamps. Selective disclosure without ZKP.
+- [**rtx-manual-to-md**](https://github.com/didvc/rtx-manual-to-md) — Convert the Yamaha RTX router command reference HTML archive to GitHub Flavored Markdown — for LLM ingestion, RAG pipelines, and offline browsing.
+- [**dir-cpu**](https://github.com/didvc/dir-cpu) — Real-time CLI that shows CPU usage aggregated by filesystem directory
 - [**image-gallery-app**](https://github.com/didvc/image-gallery-app) — 🖼️ Modern minimalist image gallery built with Express.js and Vue.js - featuring drag & drop upload, responsive design, and clean aesthetics
+- [**vibe-go-image-gallery**](https://github.com/didvc/vibe-go-image-gallery) — 🖼️ Modern image gallery application built with Go and Vue.js featuring SEO optimization, responsive design, and automatic thumbnail generation.
+- [**go-chatapp-ai**](https://github.com/didvc/go-chatapp-ai) — 🚀 A simple, real-time chat application built with Go and WebSockets, featuring a clean web interface for instant messaging. Perfect for learning…
 <!-- END gh-mutual-linking -->
